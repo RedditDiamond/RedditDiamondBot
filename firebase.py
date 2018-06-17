@@ -15,6 +15,7 @@ class FireBase:
     usertoken = None
     db = None
     status = False
+    ticker = 0
     # some stats
     count = 0
     totaldonated = 0
@@ -47,9 +48,12 @@ class FireBase:
             return False
 
     # The user token needs to be refreshed once every hour
-    def refresh_token(self, thetoken):
-        self.user = self.auth.refresh(thetoken)
+    def refresh_token(self):
+        refresh = self.user['refreshToken']
+        #print("Previous token: " + self.usertoken)
+        self.user = self.auth.refresh(refresh)
         self.usertoken = self.user['idToken']
+        print("NEW TOKEN: " + self.usertoken)
 
     # Returns total # of validated diamonds
     def get_diamond_count(self):

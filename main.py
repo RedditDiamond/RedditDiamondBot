@@ -23,7 +23,16 @@ charities = [   "DonorsChoose.org",
                 "American Red Cross",
                 "S.A.V.E. Rescue Coaltion",
                 "Children's Scholarship Fund",
-                "Equal Justice Initiative" ]
+                "Equal Justice Initiative",
+                "Habitat for Humanity",
+                "Hope for Haiti's Children",
+                "Wildlife Conservation Network",
+                "Books For Africa",
+                "Lifesong for Orphans",
+                "Arthritis National Research Foundation",
+                "Community Volunteers in Medicine",
+                "National Pediatric Cancer Foundation"
+                ]
 
 
 
@@ -132,6 +141,11 @@ def func_proc(name):
 
     if "poll" in name:
         stream_comments()
+        base.ticker = base.ticker + 1
+        if base.ticker > 180:
+            print("Requesting new token..")
+            base.refresh_token()
+            base.ticker = 0
         return "Polled"
 
     elif "status" in name:
@@ -150,7 +164,7 @@ def func_proc(name):
             print("Init API:", donator)
 
             if "override" in transaction:
-                amount = randint(1,5)
+                amount = randint(1,15)
                 charity = random.choice(charities)
 
             else:
