@@ -45,9 +45,11 @@ with app.app_context():
     global base
     global reddit
     base = firebase.FireBase()
-    reddit = praw.Reddit(client_id=config.CLIENT_ID, client_secret=config.SECRET,
-                         user_agent="py:redditdiamondbot.com.reddit:v1.0 (by /u/deathfaith, /u/PatrioTech, and /u/cmcjacob)",
-                         username=config.USERNAME, password=config.PASSWORD)
+    reddit = praw.Reddit(client_id=os.environ["REDDIT_CLIENTID"],
+client_secret=os.environ["REDDIT_SECRET"],
+user_agent="py:redditdiamondbot.com.reddit:v1.0 (by /u/deathfaith, /u/PatrioTech, and /u/cmcjacob)",
+username=os.environ["REDDIT_USERNAME"],
+password=os.environ["REDDIT_PASSWORD"])
 
 def get_receipt_info(url):
     try:
