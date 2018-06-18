@@ -45,11 +45,9 @@ with app.app_context():
     global base
     global reddit
     base = firebase.FireBase()
-    reddit = praw.Reddit(client_id=os.environ["REDDIT_CLIENTID"],
-client_secret=os.environ["REDDIT_SECRET"],
-user_agent="py:redditdiamondbot.com.reddit:v1.0 (by /u/deathfaith, /u/PatrioTech, and /u/cmcjacob)",
-username=os.environ["REDDIT_USERNAME"],
-password=os.environ["REDDIT_PASSWORD"])
+    reddit = praw.Reddit(client_id=config.CLIENT_ID, client_secret=config.SECRET,
+                         user_agent="py:redditdiamondbot.com.reddit:v1.0 (by /u/deathfaith, /u/PatrioTech, and /u/cmcjacob)",
+                         username=config.USERNAME, password=config.PASSWORD)
 
 def get_receipt_info(url):
     try:
@@ -65,11 +63,65 @@ def get_receipt_info(url):
     except:
         return -1
 
+def get_limited_queue():
+    try:
+        data = base.db.child("ratelimit").get(base.usertoken).val()
+        return data
+    except: #nothing in queue
+        return None
+
+def rate_limit(parent_fullname, the_reply):
+    limited_data = { 'parent': parent_fullname, 'reply':the_reply}
+    base.db.child("ratelimit").child(parent_fullname).set(limited_data, base.usertoken)
+
+def safe_comment_API(parent_fullname, body, code, donator):
+    try:
+        print("Trying safe_comment_API")
+        comment_object = reddit.comment(id=parent_fullname)
+        comment_object.parent().reply(body)
+        new_comment = comment_object.parent().reply(body)
+        new_comment_url = "https://www.reddit.com//comments/" + new_comment.link_id.split("_")[1] + "//" + new_comment.id
+        print(new_comment_url)
+        message_body = formatter.success_pm(new_comment_url, donator)
+        print("diamondSuccess_API:", donator)
+        reddit.redditor(donator).message('Diamond ' + str(code) + ' Claimed!', message_body)
+        #if the comment was in the queue, remove it
+        base.db.child("ratelimit").child(parent_fullname).remove()
+    except praw.exceptions.APIException as e:
+        if e.error_type == "RATELIMIT":
+            print("**DETECTED RATELIMIT** response to '" + parent_fullname + "' failed")
+            rate_limit(parent_fullname, body)
+            print("Comment queued for next poll.")
+
+def safe_comment(parent_fullname, body):
+    try:
+        # Get the comment object [dont have to invoke parent in this case]
+        print("Trying safe_comment")
+        comment_object = reddit.comment(id=parent_fullname)
+        comment_object.reply(body)
+        # if the comment was in the queue, remove it
+        base.db.child("ratelimit").child(parent_fullname).remove()
+
+    except praw.exceptions.APIException as e:
+        if e.error_type == "RATELIMIT":
+            print("**DETECTED RATELIMIT** response to '" + parent_fullname + "' failed")
+            rate_limit(parent_fullname, body)
+            print("Comment queued for next poll.")
+
 def stream_comments():
     print("stream_comments() called")
     fire_response = requests.get('https://api.pushshift.io/reddit/search/comment/?q=!redditdiamond').text
     fire_json = json.loads(fire_response)['data']
     queue = base.get_processed_comments()
+    ratelimit_que = get_limited_queue()
+
+    if ratelimit_que is not None:
+        for oldcomment in ratelimit_que:
+            oldparent = ratelimit_que[oldcomment]["parent"]
+            oldbody = ratelimit_que[oldcomment]["reply"]
+            print("Trying to safely respond to " + oldparent)
+            safe_comment(oldparent, oldbody)
+
     for comment in fire_json:
         fullname = comment['id']
         # print("is_processed: " + str(base.is_comment_processed(id)))
@@ -105,11 +157,10 @@ def stream_comments():
                     print(new_diamond)
                     reply = formatter.initial_comment(str(author_parent), str(actual_comment.author), new_diamond)
                     print(reply)
-                    actual_comment.reply(reply)
+                    safe_comment(fullname,reply)
                     base.set_comment_as_processed(fullname)
         except (KeyError, praw.exceptions.APIException) as e:
             print(e)
-
 
 def diamondSuccess_API(amount, donator, code, paypal_url, charity):
     print("[API] Verifying diamond with:", code, amount, donator, paypal_url)
@@ -119,73 +170,50 @@ def diamondSuccess_API(amount, donator, code, paypal_url, charity):
     user_donations, user_received = base.calculate_user_totals(verified_diamond["owner"])
     sub_info = base.calculate_sub_totals(verified_diamond["sub"])
     sub_info["name"] = verified_diamond["sub"]
-    invoke_comment = reddit.comment(id=verified_diamond["fullname"])
     new_comment_body = formatter.success_comment(donator, user_received["count"], code, sub_info, charity)
     print(new_comment_body)
-    new_comment = invoke_comment.parent().reply(new_comment_body)
-    new_comment_url = "https://www.reddit.com//comments/" + new_comment.link_id.split("_")[1] + "//" + new_comment.id
-    print(new_comment_url)
-    message_body = formatter.success_pm(new_comment_url, donator)
-    print("diamondSuccess_API:", donator)
-    theperson = reddit.redditor(donator).message('Diamond ' + str(code) + ' Claimed!', message_body)
+    safe_comment_API(verified_diamond["fullname"], new_comment_body, code, donator)
     return verified_diamond["owner"]
-
 
 @app.route('/')
 def root():
     abort(500, "No Request Specified")
 
-
 @app.route('/<name>')
 def func_proc(name):
-
     if "poll" in name:
         stream_comments()
-        base.ticker = base.ticker + 1
-        if base.ticker > 180:
-            print("Requesting new token..")
-            base.refresh_token()
-            base.ticker = 0
+        base.refresh_token()
         return "Polled"
-
     elif "status" in name:
         status_json = jsonify({'status': str(base.status)})
         return status_json
-
     else:
         # action API with optional arguments
         action = request.args.get('action', default='invalid', type=str)
-
         if "validate" in action:
             code = request.args.get('code', default='invalid', type=str)
             transaction = request.args.get('transaction', default='http://invalid', type=str)
             donator = request.args.get('donator', default='invalid', type=str)
-
             print("Init API:", donator)
-
             if "override" in transaction:
                 amount = randint(1,15)
                 charity = random.choice(charities)
-
             else:
                 try:
                     amount, charity = get_receipt_info(transaction)
-
                 except:
                     jsonret = jsonify({'ERROR': 'Failed to authenticate Paypal receipt'})
                     abort(500, jsonret)
-
             if amount>0:
                 print("Success")
                 owner = diamondSuccess_API(amount,donator,code,transaction, charity)
                 jsonret = jsonify({'amount': str(amount), 'charity': str(charity)})
                 print(jsonret)
                 return jsonret
-
             else:
                 jsonret = jsonify({'ERROR': 'Failed to authenticate Paypal receipt'})
                 abort(500, jsonret)
-
     # don't know what to do here
     abort(500, jsonify({'ERROR': 'Unknown Request'}))
 
