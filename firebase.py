@@ -4,7 +4,7 @@ import pyrebase
 import config
 
 def throw_error(err):
-    print("Error: {0}".format(str(err.args[0])).encode("utf-8"))
+    print("THROW ERROR: {0}".format(str(err.args[0])).encode("utf-8"))
 
 class FireBase:
     # internal
@@ -34,18 +34,19 @@ class FireBase:
     # Connects to firebase server and sets required local vars
     def connect(self):
         try:
-            self.firebase = pyrebase.initialize_app(self.m_dbconfig)
+            self.firebase = pyrebase.initialize_app(config.m_Firebase)
             self.auth = self.firebase.auth()
-            self.auth.create_custom_token
             self.user = self.auth.sign_in_with_email_and_password('redditdiamondbot@gmail.com', 'RedditDiamond44')
             self.usertoken = self.user['idToken']
             self.db = self.firebase.database()
             print("FireBase loaded with token: " + str(self.usertoken))
             return True
 
-        except:
-            print('FATAL: Failed to connect')
+        except Exception as e:
+            print("FATAL: Pyrebase failed to connect!")
+            throw_error(e)
             return False
+
 
     # The user token needs to be refreshed once every hour
     def refresh_token(self):
@@ -69,6 +70,7 @@ class FireBase:
         try:
             ddata = {"processed": True}
             self.db.child("queue").child(fullname).set(ddata, self.usertoken)
+
             return True
         except Exception as e:
             throw_error(e)
@@ -84,7 +86,7 @@ class FireBase:
                 fixed_fullname = split_full[1]
             else:
                 fixed_fullname = fullname
-            pull_db = self.db.child("queue").child(fixed_fullname).get().val()
+            pull_db = self.db.child("queue").child(fixed_fullname).get(self.usertoken).val()
             isproc = pull_db["processed"]
             if isproc is not None:
                 return isproc
@@ -93,7 +95,7 @@ class FireBase:
 
     def get_processed_comments(self):
         try:
-            pull_db = self.db.child("queue").get().val()
+            pull_db = self.db.child("queue").get(self.usertoken).val()
             return pull_db
         except Exception as e:
             return False
@@ -171,9 +173,10 @@ class FireBase:
             return 0
 
 
+
     def get_diamond(self, code):
         try:
-            pull_db = self.db.child("validated").child(code).get().val()
+            pull_db = self.db.child("validated").child(code).get(self.usertoken).val()
             return pull_db
         except Exception as e:
             throw_error(e)
@@ -219,13 +222,13 @@ class FireBase:
 
     # gets totals
     def calculate_user_totals(self, username):
-        donations = self.db.child("validated").order_by_child("donator").equal_to(username).get()
+        donations = self.db.child("validated").order_by_child("donator").equal_to(username).get(self.usertoken)
         try:
             donations = donations.val()
         except IndexError:
             donations = []
 
-        received = self.db.child("validated").order_by_child("owner").equal_to(username).get()
+        received = self.db.child("validated").order_by_child("owner").equal_to(username).get(self.usertoken)
         try:
             received = received.val()
         except IndexError:
@@ -246,9 +249,9 @@ class FireBase:
     def calculate_sub_totals(self, sub_name):
         if not self.status: return 0
         if sub_name == "all":
-            diamonds = self.db.child("validated").get()
+            diamonds = self.db.child("validated").get(self.usertoken)
         else:
-            diamonds = self.db.child("validated").order_by_child("sub").equal_to(sub_name).get()
+            diamonds = self.db.child("validated").order_by_child("sub").equal_to(sub_name).get(self.usertoken)
 
         try:
             diamonds = diamonds.val()
