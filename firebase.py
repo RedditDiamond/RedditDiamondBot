@@ -83,7 +83,6 @@ class FireBase:
     def is_opted_out(self, username):
         try:
             children = self.db.child("optout").child(str(username)).get(self.usertoken).val()
-            print(str(children))
             if children is not None:
                 return True
             else:
@@ -97,6 +96,13 @@ class FireBase:
         data = {'opt':'out'}
         self.db.child("optout").child(str(username)).set(data, self.usertoken)
 
+    # opts a user back into processing (removes them from optout)
+    def opt_in(self, username):
+        try:
+            self.db.child("optout").child(str(username)).remove()
+            return True
+        except:
+            return False
 
     # Returns total # of validated diamonds
     def get_diamond_count(self):
@@ -118,9 +124,9 @@ class FireBase:
             return None
 
 
-    # inserts a rate-limited comment into the database to be posted later
-    def rate_limit(self, parent_fullname, the_reply):
-        limited_data = {'parent': parent_fullname, 'reply': the_reply}
+    # inserts a rate-limited comment into the database to be posted (and edited) later
+    def rate_limit(self, code, parent_fullname, the_reply, is_new):
+        limited_data = {'code':code,'parent': parent_fullname, 'reply': the_reply, 'is_new':is_new}
         self.db.child("ratelimit").child(parent_fullname).set(limited_data, self.usertoken)
 
 
@@ -236,10 +242,14 @@ class FireBase:
 
 
     # Gets a diamond's information from the database
-    def get_diamond(self, code):
+    def get_diamond(self, code, is_new):
         try:
-            pull_db = self.db.child("validated").child(code).get(self.usertoken).val()
-            return pull_db
+            if not is_new:
+                pull_db = self.db.child("validated").child(code).get(self.usertoken).val()
+                return pull_db
+            else:
+                pull_db = self.db.child("unvalidated").child(code).get(self.usertoken).val()
+                return pull_db
         except Exception as e:
             print("FAILED TO GET DIAMOND " + code)
             throw_error(e)

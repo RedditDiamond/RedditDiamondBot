@@ -13,6 +13,7 @@ from flask_cors import CORS
 from bs4 import BeautifulSoup
 import random
 from random import randint
+from praw.models import Message
 
 charities = [   "DonorsChoose.org",
                 "St. Jude Children's Hospital",
@@ -43,10 +44,14 @@ subreddit_black_list = []
 with app.app_context():
     global base
     global reddit
+    global count
+
     base = firebase.FireBase()
     reddit = praw.Reddit(client_id=os.environ["REDDIT_CLIENTID"], client_secret=os.environ["REDDIT_SECRET"],
                          user_agent="py:redditdiamondbot.com.reddit:v1.0 (by /u/deathfaith, /u/PatrioTech, and /u/cmcjacob)",
                          username=os.environ["REDDIT_USERNAME"], password=os.environ["REDDIT_PASSWORD"])
+
+
 
 def get_receipt_info(url):
     try:
@@ -64,41 +69,81 @@ def get_receipt_info(url):
 
 
 def safe_comment_API(parent_fullname, body, code, donator):
-
     try:
         print("Trying safe_comment_API")
         comment_object = reddit.comment(id=parent_fullname)
-        comment_object.parent().reply(body)
         new_comment = comment_object.parent().reply(body)
         new_comment_url = "https://www.reddit.com//comments/" + new_comment.link_id.split("_")[1] + "//" + new_comment.id
         print(new_comment_url)
         message_body = formatter.success_pm(new_comment_url, donator)
         print("diamondSuccess_API:", donator)
         reddit.redditor(donator).message('Diamond ' + str(code) + ' Claimed!', message_body)
+
+        data = {'this_fullname': new_comment.id}
+        base.db.child("validated").child(code).update(data, base.usertoken)
+
         #if the comment was in the queue, remove it
         base.db.child("ratelimit").child(parent_fullname).remove()
 
     except praw.exceptions.APIException as e:
         if e.error_type == "RATELIMIT":
             print("**DETECTED RATELIMIT** response to '" + parent_fullname + "' failed")
-            base.rate_limit(parent_fullname, body)
+            base.rate_limit(code, parent_fullname, body, is_new)
             print("Comment queued for next poll.")
 
-def safe_comment(parent_fullname, body):
+
+def delete_post(fullname):
+    print("Trying to delete post..")
+    comment_object = reddit.comment(id=fullname)
+    comment_object.delete()
+
+def edit_post(fullname, new_body):
+    comment_object = reddit.comment(id=fullname)
+    comment_object.edit(new_body)
+
+def safe_comment(code, parent_fullname, body, is_new):
 
     try:
         # Get the comment object [dont have to invoke parent in this case]
         print("Trying safe_comment")
         comment_object = reddit.comment(id=parent_fullname)
-        comment_object.reply(body)
+        new_comment_id = comment_object.reply(body).id
+
+        # Need to store the actual comment fullname so we can edit it later
+        data = {'this_fullname': new_comment_id}
+        if is_new:
+            base.db.child("unvalidated").child(code).update(data, base.usertoken)
+        else:
+            base.db.child("validated").child(code).update(data, base.usertoken)
+
+
         # if the comment was in the queue, remove it
         base.db.child("ratelimit").child(parent_fullname).remove()
 
     except praw.exceptions.APIException as e:
         if e.error_type == "RATELIMIT":
             print("**DETECTED RATELIMIT** response to '" + parent_fullname + "' failed")
-            base.rate_limit(parent_fullname, body)
+            base.rate_limit(code, parent_fullname, body, is_new)
             print("Comment queued for next poll.")
+
+def check_inbox():
+    for message in reddit.inbox.unread(limit=None):
+        if isinstance(message, Message):
+            message.mark_read()
+            if "remove" in message.body or "opt-out" in message.body or "optout" in message.body or "delete" in message.body or "unsubscribe" in message.body:
+                if not base.is_opted_out(message.author.name):
+                    print("** Opting out user " + message.author.name)
+                    base.opt_out(message.author.name)
+                    message.author.message('You have opted-out of Reddit Diamond', 'We apologize you have had a negative experience with Reddit Diamond.  Your username is now opted-out of all of our services.  If you feel like you received this message in error, you can respond to this message with "subscribe" - or send an email to: support@redditdiamond.com.  We value all user feedback!')
+                else:
+                    print("** WARNING: A user (" + message.author.name + ") who is already opted-out is trying to abuse the opt-out system.")
+
+            elif "subscribe" in message.body or "opt-in" in message.body or "optin" in message.body:
+                if base.is_opted_out(message.author.name):
+                    print("** Opting in user " + message.author.name)
+                    base.opt_in(message.author.name)
+                    message.author.message('You have opted-in to Reddit Diamond', "Thanks for opting back in to Reddit Diamond! You can now gild users to your heart's content. :-)")
+
 
 def stream_comments():
     comments = base.get_pushshift_results()
@@ -109,8 +154,13 @@ def stream_comments():
         for oldcomment in rate_queue:
             oldparent = rate_queue[oldcomment]["parent"]
             oldbody = rate_queue[oldcomment]["reply"]
+            oldcode = rate_queue[oldcomment]["code"]
+            is_new = rate_queue[oldcomment]["is_new"]
+
             print("Trying to safely respond to " + oldparent)
-            safe_comment(oldparent, oldbody)
+            safe_comment(oldcode, oldparent, oldbody, is_new)
+
+
 
     if queue is not None and comments is not None:
         print("Processing comments from Pushshift API..")
@@ -166,15 +216,19 @@ def stream_comments():
                                 new_diamond = base.add_diamond(author_parent, author, fullname, subreddit, parent_comment, permalink)
                                 reply = formatter.initial_comment(str(author_parent), str(actual_comment.author), new_diamond)
                                 print(reply)
-                                safe_comment(fullname,reply)
+                                safe_comment(new_diamond,fullname,reply, True)
+                                #safe_comment(new_diamond, fullname, reply, True)
                                 base.set_comment_as_processed(fullname)
 
 
 def diamondSuccess_API(amount, donator, code, paypal_url, charity):
-
-    print("[API] Verifying diamond with:", code, amount, donator, paypal_url)
+    print("[API] Pulling original comment for code " + code)
+    old_diamond = base.get_diamond(code, True)
+    print("[API] Deleting post: " + old_diamond["this_fullname"])
+    delete_post(old_diamond["this_fullname"])
+    print("[API] validating diamond with these parameters: ", code, amount, donator, paypal_url)
     base.validate_diamond(code, amount, donator, paypal_url, charity)
-    verified_diamond = base.get_diamond(code)
+    verified_diamond = base.get_diamond(code, False)
     reddit.subreddit("redditdiamond").contributor.add(verified_diamond["owner"])
     user_donations, user_received = base.calculate_user_totals(verified_diamond["owner"])
     sub_info = base.calculate_sub_totals(verified_diamond["sub"])
@@ -191,9 +245,11 @@ def root():
 @app.route('/<name>')
 def func_proc(name):
     if "poll" in name:
-        check = base.sanity_check()
+        base.sanity_check()
         stream_comments()
+        check_inbox()
         return "Polled"
+
     elif "status" in name:
         status_json = jsonify({'status': str(base.status)})
         return status_json
@@ -228,6 +284,8 @@ def func_proc(name):
 
 
 if __name__ == '__main__':
-    print(str(base.is_opted_out("cmcjacob")))
-    base.opt_out("PatrioTech")
+
+    #safe_comment('1922069', 'e0ywew2', 'This post was sent internally per database check (unvalidated.1922069)')
+    #edit_post('e0z5kzv', 'This is an edit test of a safe_comment')
+    #delete_post('e0z5kzv')
     app.run(use_reloader=False)

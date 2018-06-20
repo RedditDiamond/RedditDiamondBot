@@ -5,7 +5,7 @@ paypal_url = "https://www.paypal.com/fundraiser/hub"
 instructions_url = "https://www.reddit.com/r/RedditDiamondBot/wiki/index#wiki_how_does_it_work.3F"
 about_page = "https://www.redditdiamond.com/about"
 sub_url = "https://www.reddit.com/r/RedditDiamondBot/"
-optout_url = "https://www.reddit.com/r/RedditDiamondBot/wiki/index/optout"
+optout_url = "https://www.reddit.com/message/compose?to=RedditDiamondBot&subject=Opt-out&message=remove"
 faq_url = "https://www.reddit.com/r/RedditDiamondBot/wiki/index/faq"
 credits_url = "https://www.reddit.com/r/RedditDiamondBot/wiki/index/credits"
 reddit_diamond_url = "https://www.redditdiamond.com/"
@@ -15,23 +15,16 @@ class Colour:
 
 # Used to reply to !RedditDiamond invocation
 def initial_comment(receiver, donator, diamond_code):
-
     message_template = 'https://redditdiamond.com/verify/code=' + str(diamond_code) + '&donator=' + donator
     return ("It appears you'd like to gift u/" + receiver + " a Reddit Diamond 💎\n\n" +
-        "**Your Diamond code is: " + str(diamond_code) + "**\n\n"
-        "To give /u/" + receiver + " this Diamond, please proceed to the [Paypal Charities](" + paypal_url + ") page, then [click here](" + message_template + ") to finalize the Diamond transfer.\n\n"
-        "[^(**WHAT IS THIS?**)](" + about_page + ") ^(|) [^(REDDITDIAMOND.COM)](" + reddit_diamond_url + ") ^(|) [^(REPORT)](" + sub_url + ") ^(|) [^(FAQ)](" + faq_url + ") ^(|) [^(CREDITS)](" + credits_url + ") ^(|) ^(#)^(" + str(diamond_code) + ")")
+        "To give this Diamond, please proceed to the [Paypal Charities](" + paypal_url + ") page, then [click here](" + message_template + ") to finalize the Diamond transfer.\n\n"
+        "[**^(WHAT IS THIS?)**](" + about_page + ") ^(|) [^(OPT-OUT)](" + optout_url + ") ^(|) ^(Diamond) ^(#)^(" + str(diamond_code) + ")")
 
 # After successful verification, the following is posted in response to user being rewarded with Diamond
 def success_comment(donator, user_total, diamond_code, sub_info, charity):
     return ("# u/" + donator + " gifted you 💎 Reddit Diamond\n\n"
-        #"^(You may now visit) [^(RedditDiamond)](" + sub_url + ") ^(|)
-        "^(YOUR TOTAL: 💎 x " + str(user_total) + " | You may now visit r/RedditDiamond!)\n\n"
-        "|^(/R/" + sub_info["name"].upper() +" TOTALS)||\n"
-        "|:-|:-|\n"
-        "|$" + str(sub_info["amount"]) + "|💎x " + str(sub_info["count"]) + " Total|\n\n"
         "*Thank you, u/" + donator + ", for donating to " + charity + ".*\n\n"
-        "[^(**WHAT IS THIS?**)](" + about_page + ") ^(|) [^(REPORT)](" + sub_url + ") ^(|) [^(OPT OUT)](" + optout_url + ") ^(|) [^(FAQ)](" + faq_url + ") ^(|) [^(CREDITS)](" + credits_url + ") ^(|) ^(#)^(" + str(diamond_code) + ")")
+       "[**^(WHAT IS THIS?)**](" + about_page + ") ^(|) [^(OPT-OUT)](" + optout_url + ") ^(|) ^(Diamond) ^(#)^(" + str(diamond_code) + ")")
 
 # After successful verification, the following is PM'd to the user who fulfilled the Diamond
 def success_pm(permalink, donator):
