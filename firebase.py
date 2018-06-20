@@ -1,7 +1,6 @@
 import time, os
 from random import randint
 import pyrebase
-import config
 
 def throw_error(err):
     print("THROW ERROR: {0}".format(str(err.args[0])).encode("utf-8"))
@@ -16,13 +15,13 @@ class FireBase:
     db = None
     status = False
     ticker = 0
-    # some stats
+    # some stats (deprecated)
     count = 0
     totaldonated = 0
     topdonor = None
     topsub = None
 
-    m_dbconfig = {
+    m_Firebase = {
         "apiKey": os.environ["FIREBASE_API"],
         "authDomain": os.environ["FIREBASE_DOMAIN"],
         "databaseURL": os.environ["FIREBASE_DB_URL"],
@@ -34,9 +33,9 @@ class FireBase:
     # Connects to firebase server and sets required local vars
     def connect(self):
         try:
-            self.firebase = pyrebase.initialize_app(config.m_Firebase)
+            self.firebase = pyrebase.initialize_app(self.m_Firebase)
             self.auth = self.firebase.auth()
-            self.user = self.auth.sign_in_with_email_and_password('redditdiamondbot@gmail.com', 'RedditDiamond44')
+            self.user = self.auth.sign_in_with_email_and_password(os.environ["FIREBASE_EMAIL"], os.environ["FIREBASE_PASSWORD"])
             self.usertoken = self.user['idToken']
             self.db = self.firebase.database()
             print("FireBase loaded with token: " + str(self.usertoken))
@@ -56,14 +55,74 @@ class FireBase:
         self.usertoken = self.user['idToken']
         print("NEW TOKEN: " + self.usertoken)
 
+
+    # this is how we know exactly when to refresh the token
+    # IF YOU DELETE THE SANITY TABLE, YOU ARE FIRED!!!1
+    def sanity_check(self):
+        try:
+            sanity = self.db.child("sanity").get(self.usertoken).val()
+            if sanity is not None:
+                return True
+            else:
+                print("WARNING: Failed sanity check, refreshing token..")
+                self.refresh_token()
+                return False
+        except:
+            print("WARNING: Failed sanity check, refreshing token..")
+            self.refresh_token()
+            return False
+
+
+    # gets pushshift results from diamond-auto-api
+    def get_pushshift_results(self):
+        children = self.db.child("pushshift").get(self.usertoken).val()
+        return children
+
+
+    # checks if a user is opted-out
+    def is_opted_out(self, username):
+        try:
+            children = self.db.child("optout").child(str(username)).get(self.usertoken).val()
+            print(str(children))
+            if children is not None:
+                return True
+            else:
+                return False
+        except:
+            return False
+
+
+    # opts a user out from processing
+    def opt_out(self, username):
+        data = {'opt':'out'}
+        self.db.child("optout").child(str(username)).set(data, self.usertoken)
+
+
     # Returns total # of validated diamonds
     def get_diamond_count(self):
         try:
             children = self.db.child("validated").get(self.usertoken).val()
             return len(children)
         except Exception as e:
+            print("FAILED TO RETURN DIAMOND COUNT")
             throw_error(e)
             return 0
+
+
+    # returns a list of rate-limited comments from the database
+    def get_limited_queue(self):
+        try:
+            data = self.db.child("ratelimit").get(self.usertoken).val()
+            return data
+        except:  # nothing in queue
+            return None
+
+
+    # inserts a rate-limited comment into the database to be posted later
+    def rate_limit(self, parent_fullname, the_reply):
+        limited_data = {'parent': parent_fullname, 'reply': the_reply}
+        self.db.child("ratelimit").child(parent_fullname).set(limited_data, self.usertoken)
+
 
     # Sets topic as processed
     def set_comment_as_processed(self, fullname):
@@ -73,6 +132,7 @@ class FireBase:
 
             return True
         except Exception as e:
+            print("FAILED TO SET COMMENT AS PROCESSED")
             throw_error(e)
             return False
 
@@ -98,6 +158,8 @@ class FireBase:
             pull_db = self.db.child("queue").get(self.usertoken).val()
             return pull_db
         except Exception as e:
+            print("FAILURE GETTING PROCESSED COMMENTS:")
+            print(str(e))
             return False
 
     def get_user_total_in_sub(self, user, sub):
@@ -173,12 +235,13 @@ class FireBase:
             return 0
 
 
-
+    # Gets a diamond's information from the database
     def get_diamond(self, code):
         try:
             pull_db = self.db.child("validated").child(code).get(self.usertoken).val()
             return pull_db
         except Exception as e:
+            print("FAILED TO GET DIAMOND " + code)
             throw_error(e)
             return None
 
@@ -219,6 +282,7 @@ class FireBase:
         elif self.code_in_unvalidated(thecode):
             return True
         return False
+
 
     # gets totals
     def calculate_user_totals(self, username):
@@ -270,16 +334,3 @@ class FireBase:
     # constructor
     def __init__(self):
         self.status = self.connect()
-
-#print("Validate = " + str(diamond))
-#FB_Object = FireBase()
-#diamond = FB_Object.add_diamond("cmcjacob", "PatrioTech", "e0l8785", "CatsBeingCats", "This is my awesome comment!")
-#print(str(diamond))
-#print('Validation: ' + FB_Object.validate_diamond(diamond, 50, "deathfaith", "override", "Water.org"))
-#get_diamond = FB_Object.get_diamond('3614710')
-#print(str(get_diamond))
-#diamond_obj = FB_Object.get_diamond(str(diamond))
-#diamond = FB_Object.add_diamond( 'cmcjacob', 'PatrioTech', e0kzm0d, 'CatsBeingCats', "Here's my amazing cat. You'll love it!")
-#print("add_diamond = " + diamond)
-
-object = FireBase()
